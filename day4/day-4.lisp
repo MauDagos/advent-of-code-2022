@@ -17,37 +17,44 @@
 
 
 (defun read-range (stream)
-  (let ((range-start (read-integer stream))
-        (range-end   (read-integer stream)))
-    (loop
-      for section from range-start upto range-end
-      collect section)))
+  (values (read-integer stream)
+          (read-integer stream)))
 
 
-(defun read-ranges (stream)
-  (values (read-range stream)
-          (read-range stream)))
+(defun ranges-fully-contained-p (range-1-start range-1-end
+                                 range-2-start range-2-end)
+  (flet ((%fully-contained-p (start1 end1 start2 end2)
+           (and (<= start1 start2)
+                (>=   end1   end2))))
+    (or (%fully-contained-p range-1-start range-1-end
+                            range-2-start range-2-end)
+        (%fully-contained-p range-2-start range-2-end
+                            range-1-start range-1-end))))
 
 
-(defun ranges-fully-contained-p (range-1 range-2)
-  (or (subsetp range-1 range-2 :test '=)
-      (subsetp range-2 range-1 :test '=)))
-
-
-(defun ranges-overlap-p (range-1 range-2)
-  (intersection range-1 range-2 :test '=))
+(defun ranges-overlap-p (range-1-start range-1-end
+                         range-2-start range-2-end)
+  (and (<= range-1-start range-2-end)
+       (>= range-1-end   range-2-start)))
 
 
 (defun day-4 (&optional (file #p"day4/example-input.txt"))
   (with-open-file (stream file :direction :input)
     (loop
       while (peek-char nil stream nil)
-      for range-1 = nil
-      for range-2 = nil
-      do (multiple-value-setq (range-1 range-2) (read-ranges stream))
-      when (ranges-fully-contained-p range-1 range-2)
+      for range-1-start = nil
+      for range-1-end   = nil
+      for range-2-start = nil
+      for range-2-end   = nil
+      do (multiple-value-setq (range-1-start range-1-end) (read-range stream))
+         (multiple-value-setq (range-2-start range-2-end) (read-range stream))
+      ;; Part 1
+      when (ranges-fully-contained-p range-1-start range-1-end
+                                     range-2-start range-2-end)
         sum 1 into fully-contained
-      when (ranges-overlap-p range-1 range-2)
+      ;; Part 2
+      when (ranges-overlap-p range-1-start range-1-end
+                             range-2-start range-2-end)
         sum 1 into overlaps
       finally (format t "Assignment pairs with one range fully containing another: ~d"
                       fully-contained)
