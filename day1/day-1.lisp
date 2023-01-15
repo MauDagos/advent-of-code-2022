@@ -4,18 +4,14 @@
 (defun day-1 (&optional (file #p"day1/example-input.txt"))
   (with-open-file (stream file :direction :input)
     (loop
-      with winner-elf = nil
-      with winner-calories = nil
+      with inventories = '()
       with current-elf = 1
       with current-calories = nil
       for line = (read-line stream nil)
       while line
       if (zerop (length line))
         do (when current-calories
-             (when (or (null winner-elf)
-                       (> current-calories winner-calories))
-               (setq winner-elf current-elf
-                     winner-calories current-calories))
+             (push (cons current-elf current-calories) inventories)
              (setq current-calories nil)
              (incf current-elf))
       else
@@ -23,5 +19,11 @@
              (if current-calories
                  (incf current-calories calories)
                  (setq current-calories calories)))
-      finally (format t "Elf #~d is carrying ~d calories"
-                      winner-elf winner-calories))))
+      finally
+         (when current-calories
+           (push (cons current-elf current-calories) inventories))
+         (let ((top-elfs (subseq (sort inventories '> :key 'cdr) 0 3)))
+           (format t "The top three elves carrying the most calories are ~
+                      ~{~d~^, ~}, carrying in total: ~d"
+                   (mapcar 'car top-elfs)
+                   (apply '+ (mapcar 'cdr top-elfs)))))))
