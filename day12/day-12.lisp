@@ -69,7 +69,6 @@
            :documentation "The node immediately preceding this node on the
                            cheapest path from the start node.")
    (g :initform 0
-      :initarg :g
       :accessor node-g
       :documentation "The cost of the cheapest path to this node from the start node.")
    (h :initform 0
@@ -90,22 +89,22 @@
             (node-g node))))
 
 
-(defmethod initialize-instance :after ((node node) &key heuristic-fn all-nodes
+(defmethod initialize-instance :after ((node node) &key heuristic-fn
                                        &allow-other-keys)
-  "Compute the h and f scores and register the new node."
+  "Compute the g, h and f scores."
+  (when (node-parent node)
+    ;; Sum 1 to account for the cost of moving from the parent to this node.
+    (setf (node-g node) (1+ (node-g (node-parent node)))))
   (setf (node-h node) (funcall heuristic-fn (node-position node))
-        (node-f node) (+ (node-g node) (node-h node))
-        (gethash (node-position node) all-nodes) node))
+        (node-f node) (+ (node-g node) (node-h node))))
 
 
 (defun reconstruct-path (node)
   "Return the path of the search to NODE."
   (loop
-    with path = '()
     for current-node = node then (node-parent current-node)
     while current-node
-    do (push (node-position current-node) path)
-    finally (return path)))
+    collect (node-position current-node)))
 
 
 (defun find-best-node (open-set)
@@ -119,19 +118,13 @@
     finally (return best-node)))
 
 
-(defun get/make-neighbor (all-nodes node-position node-code node-parent
-                          heuristic-fn)
+(defun get/make-node (all-nodes node-position &rest node-args)
   "Return a node in ALL-NODES with position NODE-POSITION or a new node."
   (or (gethash node-position all-nodes)
-      (make-instance 'node
-                     :position node-position
-                     :code node-code
-                     :parent node-parent
-                     ;; Sum 1 to account for the cost of moving from the parent
-                     ;; to this neighbor.
-                     :g (1+ (node-g node-parent))
-                     :heuristic-fn heuristic-fn
-                     :all-nodes all-nodes)))
+      (setf (gethash node-position all-nodes)
+            (apply 'make-instance 'node
+                   :position node-position
+                   node-args))))
 
 
 (defun neighbors (node heightmap all-nodes heuristic-fn)
@@ -154,11 +147,11 @@ A neighbor is valid if it's char-code is lower or at most 1 greater."
                        (char-code (aref heightmap neighbor-row neighbor-col))))
                  (when (or (<= neighbor-code (node-code node))
                            (<= (- neighbor-code (node-code node)) 1))
-                   (push (get/make-neighbor all-nodes
-                                            (cons neighbor-row neighbor-col)
-                                            neighbor-code
-                                            node
-                                            heuristic-fn)
+                   (push (get/make-node all-nodes
+                                        (cons neighbor-row neighbor-col)
+                                        :code neighbor-code
+                                        :parent node
+                                        :heuristic-fn heuristic-fn)
                          neighbors)))))
         finally (return neighbors)))))
 
@@ -171,11 +164,10 @@ A neighbor is valid if it's char-code is lower or at most 1 greater."
   (let* ( ; Keep track of all discovered nodes by position.
          (all-nodes (make-hash-table :test 'equal))
          ;; Start off by creating the start node.
-         (start-node (make-instance 'node
+         (start-node (get/make-node all-nodes
+                                    start-position
                                     :code (char-code #\a)
-                                    :position start-position
-                                    :heuristic-fn heuristic-fn
-                                    :all-nodes all-nodes))
+                                    :heuristic-fn heuristic-fn))
          ;; The set of discovered nodes that may need to be expanded.
          (open-set (make-hash-table :test 'eq)))
     ;; Initially, only the start node is known.
@@ -212,33 +204,38 @@ A neighbor is valid if it's char-code is lower or at most 1 greater."
      (abs (- (cdr pos1) (cdr pos2)))))
 
 
+(defun shortest-path-steps (heightmap start-position end-position)
+  "Return the steps of the shortest path from START-POSITION to END-POSITION."
+  (multiple-value-bind (shortest-path end-node)
+      (a-star heightmap start-position end-position
+              (lambda (node-position)
+                (funcall 'distance node-position end-position)))
+    ;; I could print a drawing of the path like the exercise...
+    (declare (ignore shortest-path))
+    ;; Since the cost of moving between positions is 1, the g score of the end
+    ;; node is the same as the amount of steps. Also equal to:
+    ;;   (1- (length shortest-path))
+    (node-g end-node)))
+
+
 ;;; Entrypoint
 
 (defun day-12 (&optional (file #p"day12/example-input.txt"))
   (multiple-value-bind (heightmap start-position end-position)
       (parse-heightmap file)
-    (let ((heuristic-fn (lambda (node-position)
-                          (funcall 'distance node-position end-position))))
-      (multiple-value-bind (shortest-path end-node)
-          (a-star heightmap start-position end-position heuristic-fn)
-        ;; I could print a drawing of the path like the exercise...
-        (declare (ignore shortest-path))
-        ;; Since the cost of moving between positions is 1, the g score of the
-        ;; end node is the same as the amount of steps. Also equal to:
-        ;;   (1- (length shortest-path))
-        (format t "~&[Part 1] The shortest path from S to E has steps: ~d"
-                (node-g end-node)))
-      (let* ((lowest-positions (find-positions #\a heightmap))
-             (least-steps
-               (loop
-                 for position in lowest-positions
-                 for end-node
-                   = (handler-case
-                         (nth-value 1 (a-star heightmap position end-position
-                                              heuristic-fn))
-                       (no-path-found () nil))
-                 when end-node
-                   minimize (node-g end-node))))
-        (format t "~&[Part 2] The shortest path from the lowest positions has ~
+    (format t "~&[Part 1] The shortest path from S to E has steps: ~d"
+            (shortest-path-steps heightmap start-position end-position))
+    (let* ((lowest-positions (find-positions #\a heightmap))
+           (least-steps
+             (loop
+               for position in lowest-positions
+               for steps = (handler-case
+                               (shortest-path-steps heightmap
+                                                    position
+                                                    end-position)
+                             (no-path-found () nil))
+               when steps
+                 minimize steps)))
+      (format t "~&[Part 2] The shortest path from the lowest positions has ~
                    steps: ~d"
-                least-steps)))))
+              least-steps))))
